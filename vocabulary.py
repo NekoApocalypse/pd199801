@@ -2,7 +2,6 @@ from collections import Counter
 import pickle
 import re
 
-
 vocabulary = []
 composite_vocab = []
 with open('199801.txt') as f:
@@ -19,18 +18,19 @@ vocabulary_pos = [tuple(word.split('/')) for word in vocabulary]
 vocabulary_counted = Counter(vocabulary_pos)
 #Dictionary: {(word,pos_tag):id}
 vocabulary_id = dict(
-    zip(sorted(vocabulary_pos, key=lambda x:vocabulary_counted[x]),
-        range(1, len(vocabulary_pos)+1)
+    zip(sorted(vocabulary_counted.keys(), key=lambda x:vocabulary_counted[x], reverse=True),
+        range(0, len(vocabulary_counted))
     )
 )
 
 vocabulary_pure = [word[0] for word in vocabulary_pos]
 pure_counted = Counter(vocabulary_pure)
 pure_id = dict(
-    zip(sorted(vocabulary_pure, key=lambda x:pure_counted[x]),
-        range(1, len(vocabulary_pure)+1)
+    zip(sorted(pure_counted.keys(), key=lambda x:pure_counted[x], reverse=True),
+        range(0, len(pure_counted))
     )
 )
+#print(pure_counted['迈向'])
 
 with open('word_pos.dat', 'wb') as f:
     pickle.dump(vocabulary_counted, f)
