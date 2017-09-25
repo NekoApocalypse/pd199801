@@ -23,16 +23,22 @@ class Options(object):
         self.stat_interval = 5
         self.summary_interval = 5
         self.checkpoint_interval = 600
+        self.restore_checkpoint = True
+        self.save_path = './checkpoints/'
 
 
 class Word2Vec(object):
-    def __init__(self, options, session):
+    def __init__(self, options, session, restore=False):
         self._session = session
         self._options = options
-        self.global_step = 0
+        self.lr = 0.005
         self.book = dl.Daily_Vocabulary()
         self._options.vocab_size = len(self.book.id2word)
-        self.build_graph()
+        if restore == False:
+            self.build_graph()
+        else:
+            self.restore_graph()
+
 
     def forward(self, examples, labels):
         """Compute logits from center words and context words"""
@@ -93,15 +99,17 @@ class Word2Vec(object):
                                    transpose_b=True)+sampled_b_vec
         return true_logits, sampled_logits
 
-    def nce_loss(self, true_logits, sampled_logits):
+    def nce_loss(self, true_logits, sampled_logits, name=None):
         """Compute NCE Loss from Logits"""
         opts = self._options
         true_xent = tf.nn.sigmoid_cross_entropy_with_logits(
             labels=tf.ones_like(true_logits), logits=true_logits)
         sampled_xent = tf.nn.sigmoid_cross_entropy_with_logits(
             labels=tf.zeros_like(sampled_logits), logits=sampled_logits)
-        nce_loss_tensor = (tf.reduce_sum(true_xent) +
-                           tf.reduce_sum(sampled_xent)) / opts.batch_size
+        nce_loss_tensor = tf.divide(
+            (tf.reduce_sum(true_xent) + tf.reduce_sum(sampled_xent)),
+            opts.batch_size,
+            name=name)
         return nce_loss_tensor
 
     def optimize(self, loss):
@@ -109,30 +117,13 @@ class Word2Vec(object):
         training operation assigned as self._train
         """
         opts = self._options
-        self.lr = 0.005
         optimizer = tf.train.GradientDescentOptimizer(self.lr)
         self.global_step_tensor = tf.Variable(0, trainable=False, name='global_step')
         train = optimizer.minimize(loss,
                                    global_step=self.global_step_tensor,
-                                   gate_gradients=optimizer.GATE_NONE)
+                                   gate_gradients=optimizer.GATE_NONE,
+                                   name='train')
         self._train = train
-
-    def build_graph(self):
-        """Build graph
-        """
-        opts = self._options
-        examples = tf.placeholder(tf.int32, [None],
-                                  name='examples')
-        labels = tf.placeholder(tf.int32, [None],
-                                name='labels')
-        true_logits, sampled_logits = self.forward(examples, labels)
-        loss = self.nce_loss(true_logits, sampled_logits)
-        self._loss = loss
-        self.optimize(loss) #Assign self._train
-        tf.global_variables_initializer().run()
-        self.saver = tf.train.Saver()
-        self._examples = examples
-        self._labels = labels
 
     def train(self):
         opts = self._options
@@ -155,16 +146,47 @@ class Word2Vec(object):
                 if self.book.end_of_epoch:
                     break
 
+    def build_graph(self):
+        """Build graph
+        """
+        opts = self._options
+        examples = tf.placeholder(tf.int32, [None],
+                                  name='examples')
+        labels = tf.placeholder(tf.int32, [None],
+                                name='labels')
+        true_logits, sampled_logits = self.forward(examples, labels)
+        loss = self.nce_loss(true_logits, sampled_logits, name='loss')
+        self._loss = loss
+        self.optimize(loss) #Assign self._train
+        self._session.run(tf.global_variables_initializer())
+        self.saver = tf.train.Saver()
+        self._examples = examples
+        self._labels = labels
+
+    def restore_graph(self):
+        self.saver = tf.train.import_meta_graph('./checkpoints/model-560720.meta')
+        self.saver.restore(self._session, tf.train.latest_checkpoint('./checkpoints'))
+        graph = tf.get_default_graph()
+        self.global_step_tensor = graph.get_tensor_by_name('global_step:0')
+        self._emb = graph.get_tensor_by_name('emb:0')
+        #self._train = graph.get_tensor_by_name('train:0')
+        #self._train = graph.get_operation_by_name('train')
+        #self._loss = graph.get_tensor_by_name('loss:0')
+        self._labels = graph.get_tensor_by_name('labels:0')
+        self._examples = graph.get_tensor_by_name('examples:0')
+
 
 def main(_):
     opts = Options()
     with tf.Session() as session:
-        model = Word2Vec(opts, session)
-        model.train()
-        model.saver.save(session,
-                         './model',
-                         global_step=model.global_step_tensor)
-
+        model = Word2Vec(opts, session, opts.restore_checkpoint)
+        if not opts.restore_checkpoint:
+            model.train()
+            model.saver.save(session,
+                             './checkpoints/model',
+                             global_step=model.global_step_tensor)
+        else:
+            print('Model successfully restored, global steps = %d\n' % model.global_step_tensor.eval())
 
 if __name__=='__main__':
     tf.app.run()
