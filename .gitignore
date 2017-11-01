@@ -36,7 +36,11 @@
 ehthumbs.db
 Thumbs.db
 
-#vim generated files#
+# vim generated files #
+#######################
 *~
 
-tmp/
+# Custom ignored folder & Files #
+#########################
+ignore/
+ignore_*
