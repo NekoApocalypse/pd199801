@@ -25,7 +25,7 @@ def read_file(book_path, encoding='utf-8'):
     :return: sentence_cat: [pos_word], list of pos_word.
     '''
     sentence_cat = []
-    with io.open(book_path, encoding=encoding) as f:
+    with open(book_path, encoding=encoding) as f:
         for line in f:
             lb = -1
             content = line.split()[1:]
