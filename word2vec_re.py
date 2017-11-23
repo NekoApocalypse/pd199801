@@ -3,9 +3,11 @@ import time
 import sys
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 import tensorflow as tf
 import data_loader as dl
 
+flags = tf.app.flags
 
 class Options(object):
     def __init__(self):
@@ -13,14 +15,14 @@ class Options(object):
         self.vocab_size = 0
         self.emb_dim = 20
         self.num_neg_samples = 5
-        self.learning_rate = 0.2
-        self.batch_size = 40
+        self.learning_rate = 0.1
+        self.batch_size = 16
         self.epochs_to_train = 5
         self.window_size = 5
         self.subsample = 1e-3
         self.stat_interval = 5
         self.summary_interval = 5
-        self.checkpoint_interval = 600
+        self.checkpoint_interval = 500
         self.restore_checkpoint = False
         self.save_path = './checkpoints/'
 
@@ -29,9 +31,12 @@ class Word2Vec(object):
     def __init__(self, options, session, restore=False):
         self._session = session
         self._options = options
-        self.lr = 0.005
-        self.book = dl.DailyVocabulary(window=5, batch_size=40)
+        self.lr = options.learning_rate
+        self.book = dl.DailyVocabulary(
+            window=options.window_size,
+            batch_size=options.batch_size)
         self._options.vocab_size = len(self.book.id2word)
+        self.loss_summary = []
         # defined in self.build_graph() & self.restore_graph()
         # All variables below are saved by saver
         # self.saver
@@ -114,7 +119,11 @@ class Word2Vec(object):
             labels=tf.ones_like(true_logits), logits=true_logits)
         sampled_xent = tf.nn.sigmoid_cross_entropy_with_logits(
             labels=tf.zeros_like(sampled_logits), logits=sampled_logits)
-        nce_loss_tensor = (tf.reduce_sum(true_xent) + tf.reduce_sum(sampled_xent)) / opts.batch_size
+        nce_loss_tensor = tf.divide(
+            tf.reduce_sum(true_xent) + tf.reduce_sum(sampled_xent),
+            tf.cast(opts.batch_size, tf.float32),
+            name=name
+        )
         return nce_loss_tensor
 
     def optimize(self, loss):
@@ -155,7 +164,7 @@ class Word2Vec(object):
         self._emb = graph.get_tensor_by_name('emb:0')
         # self._train = graph.get_tensor_by_name('train:0')
         # self._train = graph.get_operation_by_name('train')
-        # self._loss = graph.get_tensor_by_name('loss:0')
+        self._loss = graph.get_tensor_by_name('loss:0')
         self._labels = graph.get_tensor_by_name('labels:0')
         self._examples = graph.get_tensor_by_name('examples:0')
 
@@ -172,12 +181,15 @@ class Word2Vec(object):
                 # if len(examples) < 40:
                 if len(examples) < opts.batch_size:
                     break
-                self._session.run(self._train, feed_dict={self._examples: examples, self._labels: labels})
+                test_loss, _ = self._session.run([self._loss, self._train],
+                        feed_dict={self._examples: examples, self._labels: labels})
+                self.loss_summary.append(test_loss)
                 now = time.time()
                 if now - stat_time > opts.stat_interval:
                     stat_time = now
-                    print('Epoch %4d, Global Step %4d, Time used %8ds\n' % (
+                    print('Epoch %4d, Global Step %4d, Time used %8ds' % (
                         epoch, self.global_step_tensor.eval(), now - init_time))
+                    print('Loss: ', test_loss)
                     sys.stdout.flush()
                 if self.book.end_of_epoch:
                     break
@@ -192,8 +204,15 @@ def main(_):
             model.saver.save(session,
                              './checkpoints/model',
                              global_step=model.global_step_tensor)
+            with open('loss_summary.dat', 'wb') as f:
+                pickle.dump(model.loss_summary, f)
         else:
-            print('Model successfully restored, global steps = %d\n' % model.global_step_tensor.eval())
+            with open('loss_summary.dat', 'rb') as f:
+                model.loss_summary = pickle.load(f)
+            print('Model successfully restored, global steps = %d\n' %
+                  model.global_step_tensor.eval())
+    plt.plot(model.loss_summary)
+    plt.show()
 
 
 if __name__ == '__main__':

@@ -11,6 +11,7 @@ class DailyVocabulary(object):
         self._batch_size = batch_size
         self.load_dictionary_pure()
         self.label = 0
+        self.offset = 1
         self.end_of_epoch = False
 
     def load_dictionary_pure(self):
@@ -38,25 +39,42 @@ class DailyVocabulary(object):
     def restart_epoch(self):
         self.end_of_epoch = False
         self.label = 0
+        self.offset = 1
 
     def generate_batch(self):
         count = 0
         x = []
         y = []
         while count < self._batch_size:
-            center = self.label
-            self.label += 1
-            for inc in range(1, self._window_size):
-                if center + inc < self._book_size:
-                    x.append(self.book[center])
-                    y.append(self.book[center+inc])
-                    count += 1
-            if self.label == self._book_size:
+            if self.offset >= self._window_size:
+                self.label += 1
+                self.offset = 1
+            if self.label + self.offset >= self._book_size:
                 self.end_of_epoch = True
                 break
+            x.append(self.book[self.label])
+            y.append(self.book[self.label + self.offset])
+            count += 1
+            self.offset += 1
         return x, y
 
 
 if __name__ == '__main__':
     dict_ = DailyVocabulary()
+    # test generate_batch
+    tx, ty = dict_.generate_batch()
+    wx = [dict_.id2word[i] for i in tx]
+    wy = [dict_.id2word[i] for i in ty]
+    print(wx, wy)
+    tx, ty = dict_.generate_batch()
+    wx = [dict_.id2word[i] for i in tx]
+    wy = [dict_.id2word[i] for i in ty]
+    print(wx, wy)
+    dict_.restart_epoch()
+    tx, ty = dict_.generate_batch()
+    wx = [dict_.id2word[i] for i in tx]
+    wy = [dict_.id2word[i] for i in ty]
+    print(wx, wy)
+    print(dict_.word2count)
+    print(len(dict_.id2word))
 
