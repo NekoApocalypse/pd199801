@@ -45,3 +45,4 @@ Thumbs.db
 ignore/
 _ignore*
 dataset/
+checkpoints/*

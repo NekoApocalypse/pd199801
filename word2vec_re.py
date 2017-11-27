@@ -7,23 +7,24 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import data_loader as dl
 
-flags = tf.app.flags
+# flags = tf.app.flags
+
 
 class Options(object):
     def __init__(self):
         # assigned externally
         self.vocab_size = 0
-        self.emb_dim = 20
+        self.emb_dim = 40
         self.num_neg_samples = 5
         self.learning_rate = 0.1
         self.batch_size = 16
-        self.epochs_to_train = 5
+        self.epochs_to_train = 15
         self.window_size = 5
         self.subsample = 1e-3
         self.stat_interval = 5
         self.summary_interval = 5
         self.checkpoint_interval = 500
-        self.restore_checkpoint = False
+        self.restore_checkpoint = True
         self.save_path = './checkpoints/'
 
 
@@ -46,10 +47,29 @@ class Word2Vec(object):
         # self._loss                : NCE loss
         # self._train               : Operation to minimize self._loss
         # self.global_step_tensor   : Global step tracker
+        # defined in self.build_eval_graph
+        # self.nearby_word          : Placeholder for nearby_word test
+        # self.nearby_val           : cosine distance of the nearest word
+        # self.nearby_idx           : ID of nearest word
         if not restore:
             self.build_graph()
+            self.build_eval_graph()
         else:
             self.restore_graph()
+            self.build_eval_graph()
+
+    def build_eval_graph(self):
+        opts = self._options
+        nemb = tf.nn.l2_normalize(self._emb, 1)
+        nearby_word = tf.placeholder(dtype=tf.int32)
+        nearby_emb = tf.gather(nemb, nearby_word)
+        print(nearby_emb.get_shape())
+        nearby_dist = tf.matmul(nearby_emb, nemb, transpose_b=True)
+        nearby_val, nearby_idx = tf.nn.top_k(nearby_dist,
+                                             min(1000, opts.vocab_size))
+        self.nearby_word = nearby_word
+        self.nearby_val = nearby_val
+        self.nearby_idx = nearby_idx
 
     def forward(self, examples, labels):
         """ Compute true_logits and sampled_logits from input """
@@ -157,7 +177,7 @@ class Word2Vec(object):
         self._labels = labels
 
     def restore_graph(self):
-        self.saver = tf.train.import_meta_graph('./checkpoints/model-560720.meta')
+        self.saver = tf.train.import_meta_graph('./checkpoints/model-4205400.meta')
         self.saver.restore(self._session, tf.train.latest_checkpoint('./checkpoints'))
         graph = tf.get_default_graph()
         self.global_step_tensor = graph.get_tensor_by_name('global_step:0')
@@ -194,6 +214,18 @@ class Word2Vec(object):
                 if self.book.end_of_epoch:
                     break
 
+    def rand_nearby(self, words=10, num=10):
+        opts = self._options
+        ids = np.random.random_integers(0, opts.vocab_size-1, words)
+        print('ids:', ids)
+        vals, idx = self._session.run(
+            [self.nearby_val, self.nearby_idx], {self.nearby_word: ids}
+        )
+        for i in range(words):
+            print("\n%s\n======================" % self.book.id2word[ids[i]])
+            for (neighbor, distance) in zip(idx[i, :num], vals[i, :num]):
+                print("%-20s %6.4f" % (self.book.id2word[neighbor], distance))
+
 
 def main(_):
     opts = Options()
@@ -206,11 +238,13 @@ def main(_):
                              global_step=model.global_step_tensor)
             with open('loss_summary.dat', 'wb') as f:
                 pickle.dump(model.loss_summary, f)
+            model.rand_nearby()
         else:
             with open('loss_summary.dat', 'rb') as f:
                 model.loss_summary = pickle.load(f)
             print('Model successfully restored, global steps = %d\n' %
                   model.global_step_tensor.eval())
+            model.rand_nearby()
     plt.plot(model.loss_summary)
     plt.show()
 
